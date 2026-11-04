@@ -1,113 +1,166 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Habit, WeekDayInfo } from '../types/habit';
-
-export const getWeekDates = (baseDate: Date = new Date()): WeekDayInfo[] => {
-  const current = new Date(baseDate);
-  const day = current.getDay();
-  const diff = current.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(current.setDate(diff));
-
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return {
-      isoDate: d.toISOString().split('T')[0],
-      dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
-      dayNumber: d.getDate(),
-      isToday: d.toDateString() === new Date().toDateString(),
-    };
-  });
-};
-
-const INITIAL_HABITS: Habit[] = [
-  {
-    id: 'h-101',
-    tenantId: 'tenant-cognizant-corp',
-    userId: 'usr-901',
-    name: 'System Design & Distributed Systems Reading',
-    category: 'Learning',
-    targetDaysPerWeek: 5,
-    currentStreak: 12,
-    longestStreak: 24,
-    completions: {},
-  },
-  {
-    id: 'h-102',
-    tenantId: 'tenant-cognizant-corp',
-    userId: 'usr-901',
-    name: 'Morning Hydration & 30m Mobility',
-    category: 'Health',
-    targetDaysPerWeek: 7,
-    currentStreak: 8,
-    longestStreak: 15,
-    completions: {},
-  },
-  {
-    id: 'h-103',
-    tenantId: 'tenant-cognizant-corp',
-    userId: 'usr-901',
-    name: 'Deep Work (No Notifications) - 90 mins',
-    category: 'Productivity',
-    targetDaysPerWeek: 5,
-    currentStreak: 4,
-    longestStreak: 14,
-    completions: {},
-  },
-];
+import { useState, useMemo, useEffect } from 'react';
+import { Habit, HabitStats } from '../types/habit';
+import { INITIAL_HABITS, DAYS_OF_WEEK } from '../constants/habitData';
+import { calculateBestWeekStreak } from '../utils/streakUtils';
 
 export const useHabits = () => {
-  const weekDays = useMemo(() => getWeekDates(), []);
   const [habits, setHabits] = useState<Habit[]>(() => {
-    const [mon, tue, wed, thu] = weekDays.map((d) => d.isoDate);
-    return INITIAL_HABITS.map((h, idx) => {
-      if (idx === 0) return { ...h, completions: { [mon]: true, [tue]: true, [wed]: true } };
-      if (idx === 1) return { ...h, completions: { [mon]: true, [tue]: true, [wed]: true, [thu]: true } };
-      return { ...h, completions: { [tue]: true, [wed]: true } };
-    });
+    try {
+      const saved = localStorage.getItem('habitpulse_data_v1');
+      return saved ? JSON.parse(saved) : INITIAL_HABITS;
+    } catch {
+      return INITIAL_HABITS;
+    }
   });
 
-  const toggleCheckIn = useCallback(async (habitId: string, isoDate: string) => {
-    const habit = habits.find((h) => h.id === habitId);
-    if (!habit) return;
+  const [darkMode, setDarkMode] = useState<boolean>(true);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [activeDayIndex, setActiveDayIndex] = useState<number>(5);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [chartType, setChartType] = useState<'bar' | 'area'>('bar');
+  const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
 
-    const nextStatus = !habit.completions[isoDate];
+  useEffect(() => {
+    try {
+      localStorage.setItem('habitpulse_data_v1', JSON.stringify(habits));
+    } catch (e) {
+      console.error('Could not save habits to storage', e);
+    }
+  }, [habits]);
 
+  const toggleHabitDay = (habitId: string, dayIdx: number) => {
     setHabits((prev) =>
       prev.map((h) => {
         if (h.id !== habitId) return h;
-        const streakDelta = nextStatus ? 1 : -1;
-        return {
-          ...h,
-          currentStreak: Math.max(0, h.currentStreak + streakDelta),
-          completions: { ...h.completions, [isoDate]: nextStatus },
-        };
+        const updatedDays = [...h.completedDays];
+        updatedDays[dayIdx] = !updatedDays[dayIdx];
+        return { ...h, completedDays: updatedDays };
       })
     );
-  }, [habits]);
+  };
 
-  const totalWeeklyChecks = useMemo(() => {
-    return habits.reduce((acc, h) => {
-      const thisWeekCount = weekDays.filter((d) => h.completions[d.isoDate]).length;
-      return acc + thisWeekCount;
-    }, 0);
-  }, [habits, weekDays]);
+  const handleAddHabit = (newHabit: Habit) => {
+    setHabits((prev) => [...prev, newHabit]);
+    setIsModalOpen(false);
+  };
 
-  const overallAdherence = useMemo(() => {
-    const totalPossible = habits.reduce((acc, h) => acc + h.targetDaysPerWeek, 0);
-    if (totalPossible === 0) return 0;
-    return Math.min(100, Math.round((totalWeeklyChecks / totalPossible) * 100));
-  }, [habits, totalWeeklyChecks]);
+  const handleDeleteHabit = (id: string) => {
+    setHabits((prev) => prev.filter((h) => h.id !== id));
+    setConfirmClearId(null);
+  };
 
-  const maxStreak = useMemo(() => {
-    return Math.max(...habits.map((h) => h.currentStreak), 0);
+  const markAllForDay = (dayIdx: number) => {
+    setHabits((prev) =>
+      prev.map((h) => {
+        const updated = [...h.completedDays];
+        updated[dayIdx] = true;
+        return { ...h, completedDays: updated };
+      })
+    );
+  };
+
+  const resetWeek = () => {
+    setHabits((prev) =>
+      prev.map((h) => ({
+        ...h,
+        completedDays: [false, false, false, false, false, false, false],
+      }))
+    );
+  };
+
+  const filteredHabits = useMemo(() => {
+    if (selectedCategory === 'all') return habits;
+    return habits.filter((h) => h.category === selectedCategory);
+  }, [habits, selectedCategory]);
+
+  const stats: HabitStats = useMemo(() => {
+    const totalHabits = habits.length;
+    if (totalHabits === 0) {
+      return {
+        weeklyCompletionRate: 0,
+        totalCheckins: 0,
+        totalTarget: 0,
+        topStreak: 0,
+        topStreakHabit: 'None',
+        perfectDaysCount: 0,
+        dailyData: DAYS_OF_WEEK.map((d) => ({
+          name: d.short,
+          fullName: d.full,
+          completed: 0,
+          total: 0,
+          rate: 0,
+          index: d.index,
+        })),
+      };
+    }
+
+    let totalCheckins = 0;
+    let totalTarget = 0;
+    let topStreak = 0;
+    let topStreakHabit = 'None';
+
+    habits.forEach((h) => {
+      const checkins = h.completedDays.filter(Boolean).length;
+      totalCheckins += checkins;
+      totalTarget += h.targetPerWeek;
+      const best = calculateBestWeekStreak(h.completedDays);
+      if (best > topStreak) {
+        topStreak = best;
+        topStreakHabit = h.name;
+      }
+    });
+
+    const weeklyCompletionRate = Math.min(
+      100,
+      Math.round((totalCheckins / (totalHabits * 7)) * 100)
+    );
+
+    let perfectDaysCount = 0;
+    const dailyData = DAYS_OF_WEEK.map((day, idx) => {
+      const completedOnDay = habits.filter((h) => h.completedDays[idx]).length;
+      const rate = Math.round((completedOnDay / totalHabits) * 100);
+      if (completedOnDay === totalHabits && totalHabits > 0) perfectDaysCount++;
+      return {
+        name: day.short,
+        fullName: day.full,
+        completed: completedOnDay,
+        total: totalHabits,
+        rate,
+        index: idx,
+      };
+    });
+
+    return {
+      weeklyCompletionRate,
+      totalCheckins,
+      totalTarget,
+      topStreak,
+      topStreakHabit,
+      perfectDaysCount,
+      dailyData,
+    };
   }, [habits]);
 
   return {
-    weekDays,
     habits,
-    toggleCheckIn,
-    totalWeeklyChecks,
-    overallAdherence,
-    maxStreak,
+    darkMode,
+    setDarkMode,
+    selectedCategory,
+    setSelectedCategory,
+    activeDayIndex,
+    setActiveDayIndex,
+    isModalOpen,
+    setIsModalOpen,
+    chartType,
+    setChartType,
+    confirmClearId,
+    setConfirmClearId,
+    toggleHabitDay,
+    handleAddHabit,
+    handleDeleteHabit,
+    markAllForDay,
+    resetWeek,
+    filteredHabits,
+    stats,
   };
 };

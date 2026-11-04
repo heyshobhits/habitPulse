@@ -1,29 +1,51 @@
-export type HabitCategory = 'Health' | 'Productivity' | 'Mindfulness' | 'Learning';
+export interface DayOfWeek {
+  short: string;
+  full: string;
+  index: number;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+  text?: string;
+  lightBg?: string;
+}
+
+export interface ColorOption {
+  name: string;
+  hex: string;
+  bg: string;
+  ring: string;
+  light: string;
+  text: string;
+}
 
 export interface Habit {
   id: string;
-  tenantId: string;
-  userId: string;
   name: string;
-  category: HabitCategory;
-  targetDaysPerWeek: number;
-  currentStreak: number;
-  longestStreak: number;
-  completions: Record<string, boolean>; // key: YYYY-MM-DD
+  category: string;
+  color: ColorOption;
+  icon: string;
+  targetPerWeek: number;
+  completedDays: boolean[];
 }
 
-export interface WeekDayInfo {
-  isoDate: string;
-  dayName: string;
-  dayNumber: number;
-  isToday: boolean;
+export interface DailyStat {
+  name: string;
+  fullName: string;
+  completed: number;
+  total: number;
+  rate: number;
+  index: number;
 }
 
-export interface CheckInPayload {
-  tenant_id: string;
-  user_id: string;
-  habit_id: string;
-  local_completion_date: string;
-  action: 'COMPLETED' | 'UNCHECKED';
-  source_client: string;
+export interface HabitStats {
+  weeklyCompletionRate: number;
+  totalCheckins: number;
+  totalTarget: number;
+  topStreak: number;
+  topStreakHabit: string;
+  perfectDaysCount: number;
+  dailyData: DailyStat[];
 }
