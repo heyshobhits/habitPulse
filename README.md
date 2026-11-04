@@ -99,12 +99,12 @@ src/
 git clone https://github.com/heyshobhits/habitPulse.git
 cd habitPulse
 
-# Checkout feature branch
-git checkout feature/dashboard-restructure
-
 # Install dependencies
 npm install
 
 # Start local development server
 npm run dev
+
+# Type-check and create a production build
+npm run build
 ```
